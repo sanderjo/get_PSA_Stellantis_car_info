@@ -45,10 +45,9 @@ def request_token(params):
     return tokens["access_token"]
 
 
-def get_access_token():
-    codes = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
-    if codes:
-        return request_token({"grant_type": "authorization_code", "code": codes[0],
+def get_access_token(code=None):
+    if code:
+        return request_token({"grant_type": "authorization_code", "code": code,
                               "redirect_uri": REDIRECT_URI})
     if not os.path.exists(TOKEN_FILE):
         sys.exit(__doc__)
@@ -80,7 +79,8 @@ def local_time(timestamp):
 
 
 def main():
-    access_token = get_access_token()
+    codes = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
+    access_token = get_access_token(codes[0] if codes else None)
     vehicles = api_get(access_token, "/vehicles")["_embedded"]["vehicles"]
     for vehicle in vehicles:
         status = api_get(access_token, f"/vehicles/{vehicle['id']}/status")

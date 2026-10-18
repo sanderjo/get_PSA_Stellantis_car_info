@@ -79,3 +79,42 @@ VIN: VR3UHZKXZMT1234567
 The OAuth client ID/secret and the API endpoints come from the Home Assistant
 [stellantis_vehicles](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles)
 integration and from the psa_car_controller code in this repository.
+
+## Start / stop charging
+
+`charging.py` sends a remote command to the car, like the charge button in the MyPeugeot app:
+
+```
+pip install requests paho-mqtt pycryptodome
+# or on Debian/Ubuntu: sudo apt install python3-paho-mqtt python3-pycryptodome
+./charging.py start     # charge now
+./charging.py stop      # stop; the car waits for its delayed-charge time (nextDelayedTime)
+```
+
+Run `get_PSA_info.py` first (for `psa_tokens.json`). The first time, `charging.py` activates remote
+control: you get an SMS code on the phone number of your MyPeugeot account and the script asks for it
+and for your MyPeugeot app PIN. Do this in a terminal. Commands go through the Stellantis MQTT server,
+so the car must be online; a sleeping car may answer late or not at all.
+
+Stellantis allows only about 6 new remote-control logins (OTP codes) per day. The script saves the
+remote token in `psa_remote.json` and reuses it for a few days, so normal use stays well below that.
+`psa_remote.json` and `psa_otp.pickle` are as secret as `psa_tokens.json`; they are in `.gitignore`.
+
+The `psa_otp/` folder (the OTP login code) is copied from the Home Assistant integration (see Credits)
+(MIT license).
+
+Example of a successful `stop`. The car was asleep, so the server first wakes it up (`901`), then
+forwards the command (`903`); `0` is the car's final "done":
+
+```
+$ ./charging.py stop
+VIN: VR3UHZKXZMT1234567  (delayed-charge time 18:00)
+Sent /VehCharge {"program": {"hour": 18, "minute": 0}, "type": "delayed"}, waiting for the car...
+  response 900: {"process_date": "2026-10-15T13:24:52Z", "vin": "VR3UHZKXZMT1234567", "process_code": "900", "process_message": "[process.900.request.accepted.key]"}
+  response 901: {"process_date": "2026-10-15T13:24:53Z", "vin": "VR3UHZKXZMT1234567", "process_code": "901", "process_message": "[process.901.vehicle.asleep.key]"}
+  response 903: {"process_date": "2026-10-15T13:25:19Z", "vin": "VR3UHZKXZMT1234567", "process_code": "903", "process_message": "[process.903.request.forwarded.to.vehicle.key]"}
+  response 0: {"resp_date": "2026-10-15T13:25:24Z", "vin": "VR3UHZKXZMT1234567", "return_code": "0"}
+OK
+```
+
+Right after this, `get_PSA_info.py` showed `charge state: Stopped` with the cable still plugged in.
