@@ -36,6 +36,18 @@ code if that token stops working, for example after a password change.
 
 **Keep `psa_tokens.json` private.** It gives access to your car account. It is in `.gitignore`.
 
+## CSV log
+
+Every run also adds one row per car to `VIN<vin>.csv`, next to the script. The header is written when the
+file is created. `retrieved` is when the script ran, `updated` is the car's last report (so rows can
+repeat the same data if the car hasn't reported since). All times are UTC. The file contains your VIN and
+location, so it is in `.gitignore`.
+
+```
+retrieved,updated,battery_pct,battery_kwh,range_km,plugged,charge_state,charging_rate_kmh,odometer_km,outside_temp_c,latitude,longitude,position_updated
+2026-10-02T17:38:51Z,2026-10-02T17:37:42Z,96.0,44.2,278,False,Disconnected,0,41329.9,18.5,52.00000,4.30000,2026-04-10T09:43:44Z
+```
+
 ## Battery kWh
 
 The API reports the battery level as a percentage, not in kWh. The script calculates kWh as

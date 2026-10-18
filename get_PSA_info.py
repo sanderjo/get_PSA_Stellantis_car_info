@@ -8,6 +8,7 @@ Later runs:  python3 get_PSA_info.py
              (uses the refresh token saved in psa_tokens.json)
 """
 import base64
+import csv
 import json
 import os
 import sys
@@ -27,8 +28,13 @@ API_URL = "https://api.groupe-psa.com/connectedcar/v4/user"
 # Usable battery capacity in kWh: 46 for the 2019-2022 e-208 (50 kWh gross), 51 for the 2023+ model
 BATTERY_KWH = float(os.environ.get("BATTERY_KWH", 46))
 
-TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "psa_tokens.json")
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOKEN_FILE = os.path.join(HERE, "psa_tokens.json")
 TIMEOUT = 30
+
+# Every run adds one row per car to VIN<vin>.csv; timestamps are UTC as reported by the API
+CSV_FIELDS = ["retrieved", "updated", "battery_pct", "battery_kwh", "range_km", "plugged", "charge_state",
+              "charging_rate_kmh", "odometer_km", "outside_temp_c", "latitude", "longitude", "position_updated"]
 
 
 def request_token(params):
@@ -78,6 +84,16 @@ def local_time(timestamp):
     return f"{utc.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')} ({age})"
 
 
+def append_csv(vin, row):
+    csv_file = os.path.join(HERE, f"VIN{vin}.csv")
+    new_file = not os.path.exists(csv_file)
+    with open(csv_file, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        if new_file:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def main():
     codes = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
     access_token = get_access_token(codes[0] if codes else None)
@@ -85,6 +101,7 @@ def main():
     for vehicle in vehicles:
         status = api_get(access_token, f"/vehicles/{vehicle['id']}/status")
         print(f"VIN: {vehicle['vin']}")
+        row = {"retrieved": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         for energy in status.get("energies", []):
             if energy.get("type") != "Electric":
                 continue
@@ -95,14 +112,21 @@ def main():
             print(f"  range:        {energy.get('autonomy')} km")
             print(f"  plugged in:   {charging.get('plugged')}")
             print(f"  charge state: {charging.get('status')}  ({charging.get('chargingRate')} km/h)")
-        print(f"  odometer:     {status.get('odometer', {}).get('mileage')} km")
-        print(f"  outside temp: {status.get('environment', {}).get('air', {}).get('temp')} °C")
+            row.update(updated=energy.get("createdAt"), battery_pct=level, battery_kwh=round(level * BATTERY_KWH / 100, 1),
+                       range_km=energy.get("autonomy"), plugged=charging.get("plugged"),
+                       charge_state=charging.get("status"), charging_rate_kmh=charging.get("chargingRate"))
+        row["odometer_km"] = status.get("odometer", {}).get("mileage")
+        row["outside_temp_c"] = status.get("environment", {}).get("air", {}).get("temp")
+        print(f"  odometer:     {row['odometer_km']} km")
+        print(f"  outside temp: {row['outside_temp_c']} °C")
         position = status.get("lastPosition", {})
         coordinates = position.get("geometry", {}).get("coordinates")
         if coordinates:
             lon, lat = coordinates[:2]  # GeoJSON order is longitude, latitude
             print(f"  location:     {lat}, {lon}  (as of {local_time(position.get('properties', {}).get('createdAt'))})")
             print(f"                https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=17/{lat}/{lon}")
+            row.update(latitude=lat, longitude=lon, position_updated=position.get("properties", {}).get("createdAt"))
+        append_csv(vehicle["vin"], row)
         if "--raw" in sys.argv:
             print(json.dumps(status, indent=2))
 
